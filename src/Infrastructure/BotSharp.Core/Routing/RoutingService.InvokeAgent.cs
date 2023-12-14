@@ -1,5 +1,6 @@
 using BotSharp.Abstraction.Agents.Models;
 using BotSharp.Abstraction.MLTasks.Settings;
+using BotSharp.Abstraction.Routing.Models;
 using BotSharp.Abstraction.Templating;
 
 namespace BotSharp.Core.Routing;
@@ -20,8 +21,7 @@ public partial class RoutingService
         var agentService = _services.GetRequiredService<IAgentService>();
         var agent = await agentService.LoadAgent(agentId);
 
-        var settings = _services.GetRequiredService<ChatCompletionSetting>();
-        var chatCompletion = CompletionProvider.GetChatCompletion(_services, provider: settings.Provider, model: settings.Model);
+        var chatCompletion = CompletionProvider.GetChatCompletion(_services);
 
         var message = dialogs.Last();
         var response = chatCompletion.GetChatCompletions(agent, dialogs);
@@ -33,7 +33,7 @@ public partial class RoutingService
             message.FunctionName = response.FunctionName;
             message.FunctionArgs = response.FunctionArgs;
             message.CurrentAgentId = agent.Id;
-            await InvokeFunction(agent, message, dialogs);
+            await InvokeFunction(message, dialogs);
         }
         else
         {
@@ -47,7 +47,7 @@ public partial class RoutingService
         return true;
     }
 
-    private async Task<bool> InvokeFunction(Agent agent, RoleDialogModel message, List<RoleDialogModel> dialogs)
+    private async Task<bool> InvokeFunction(RoleDialogModel message, List<RoleDialogModel> dialogs)
     {
         // execute function
         // Save states
@@ -61,9 +61,11 @@ public partial class RoutingService
         // Pass execution result to LLM to get response
         if (!message.StopCompletion)
         {
+            var routing = _services.GetRequiredService<RoutingContext>();
+            
             // Find response template
             var templateService = _services.GetRequiredService<IResponseTemplateService>();
-            var responseTemplate = await templateService.RenderFunctionResponse(agent.Id, message);
+            var responseTemplate = await templateService.RenderFunctionResponse(message.CurrentAgentId, message);
             if (!string.IsNullOrEmpty(responseTemplate))
             {
                 dialogs.Add(RoleDialogModel.From(message,
@@ -77,8 +79,9 @@ public partial class RoutingService
                     role: AgentRole.Function, 
                     content: message.Content));
 
-                // Send to LLM
-                await InvokeAgent(agent.Id, dialogs);
+                // Send to Next LLM
+                var agentId = routing.GetCurrentAgentId();
+                await InvokeAgent(agentId, dialogs);
             }
         }
         else

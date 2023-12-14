@@ -1,3 +1,4 @@
+using BotSharp.Abstraction.Repositories.Filters;
 using BotSharp.Abstraction.Users.Models;
 
 namespace BotSharp.Abstraction.Repositories;
@@ -9,15 +10,14 @@ public interface IBotSharpRepository
 
     #region User
     User? GetUserByEmail(string email);
-    User? GetUserByExternalId(string externalId);
+    User? GetUserById(string id);
     void CreateUser(User user);
     #endregion
 
     #region Agent
     void UpdateAgent(Agent agent, AgentField field);
     Agent? GetAgent(string agentId);
-    List<Agent> GetAgents(string? name = null, bool? disabled = null, bool? allowRouting = null,
-        bool? isPublic = null, List<string>? agentIds = null);
+    List<Agent> GetAgents(AgentFilter filter);
     List<Agent> GetAgentsByUser(string userId);
     void BulkInsertAgents(List<Agent> agents);
     void BulkInsertUserAgents(List<UserAgent> userAgents);
@@ -28,13 +28,24 @@ public interface IBotSharpRepository
 
     #region Conversation
     void CreateNewConversation(Conversation conversation);
-    string GetConversationDialog(string conversationId);
-    void UpdateConversationDialog(string conversationId, string dialogs);
+    bool DeleteConversation(string conversationId);
+    List<DialogElement> GetConversationDialogs(string conversationId);
+    void AppendConversationDialogs(string conversationId, List<DialogElement> dialogs);
     List<StateKeyValue> GetConversationStates(string conversationId);
     void UpdateConversationStates(string conversationId, List<StateKeyValue> states);
+    void UpdateConversationStatus(string conversationId, string status);
     Conversation GetConversation(string conversationId);
-    List<Conversation> GetConversations(string userId);
-    void AddExectionLogs(string conversationId, List<string> logs);
-    List<string> GetExectionLogs(string conversationId);
+    List<Conversation> GetConversations(ConversationFilter filter);
+    void UpdateConversationTitle(string conversationId, string title);
+    List<Conversation> GetLastConversations();
+    #endregion
+
+    #region Execution Log
+    void AddExecutionLogs(string conversationId, List<string> logs);
+    List<string> GetExecutionLogs(string conversationId);
+    #endregion
+
+    #region LLM Completion Log
+    void SaveLlmCompletionLog(LlmCompletionLog log);
     #endregion
 }

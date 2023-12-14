@@ -2,6 +2,7 @@ using BotSharp.Abstraction.Agents.Models;
 using BotSharp.Abstraction.Functions.Models;
 using BotSharp.Abstraction.Planning;
 using BotSharp.Abstraction.Repositories;
+using BotSharp.Abstraction.Repositories.Filters;
 using BotSharp.Abstraction.Routing;
 using BotSharp.Abstraction.Routing.Models;
 using BotSharp.Abstraction.Routing.Settings;
@@ -31,12 +32,14 @@ public partial class RoutingService : IRoutingService
         _logger = logger;
     }
 
-    public async Task<RoleDialogModel> ExecuteOnce(Agent agent, RoleDialogModel message)
+    public async Task<RoleDialogModel> ExecuteDirectly(Agent agent, RoleDialogModel message)
     {
         var handlers = _services.GetServices<IRoutingHandler>();
 
         var handler = handlers.FirstOrDefault(x => x.Name == "route_to_agent");
-        var dialogs = new List<RoleDialogModel> { message };
+
+        var conv = _services.GetRequiredService<IConversationService>();
+        var dialogs = conv.GetDialogHistory();
         handler.SetDialogs(dialogs);
 
         var inst = new FunctionCallFromLlm
@@ -46,7 +49,7 @@ public partial class RoutingService : IRoutingService
             Reason = message.Content,
             AgentName = agent.Name,
             OriginalAgent = agent.Name,
-            IsExecutionOnce = true
+            ExecutingDirectly = true
         };
 
         var result = await handler.Handle(this, inst, message);
@@ -128,7 +131,12 @@ public partial class RoutingService : IRoutingService
     {
         var db = _services.GetRequiredService<IBotSharpRepository>();
 
-        var agents = db.GetAgents(disabled: false, allowRouting: true);
+        var filter = new AgentFilter
+        {
+            Disabled = false,
+            AllowRouting = true
+        };
+        var agents = db.GetAgents(filter);
         var records = agents.SelectMany(x =>
         {
             x.RoutingRules.ForEach(r =>
@@ -141,11 +149,11 @@ public partial class RoutingService : IRoutingService
 
         // Filter agents by profile
         var state = _services.GetRequiredService<IConversationStateService>();
-        var name = state.GetState("channel");
-        var specifiedProfile = agents.FirstOrDefault(x => x.Profiles.Contains(name));
+        var channel = state.GetState("channel");
+        var specifiedProfile = agents.FirstOrDefault(x => x.Profiles.Contains(channel));
         if (specifiedProfile != null)
         {
-            records = records.Where(x => specifiedProfile.Profiles.Contains(name)).ToArray();
+            records = records.Where(x => specifiedProfile.Profiles.Contains(channel)).ToArray();
         }
 
         return records;
@@ -158,7 +166,12 @@ public partial class RoutingService : IRoutingService
     {
         var db = _services.GetRequiredService<IBotSharpRepository>();
 
-        var agents = db.GetAgents(disabled: false, allowRouting: true);
+        var filter = new AgentFilter
+        {
+            Disabled = false,
+            AllowRouting = true
+        };
+        var agents = db.GetAgents(filter);
         return agents.Select(x => new RoutingItem
         {
             AgentId = x.Id,

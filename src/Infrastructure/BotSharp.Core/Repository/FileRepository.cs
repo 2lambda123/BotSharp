@@ -5,6 +5,7 @@ using BotSharp.Abstraction.Users.Models;
 using BotSharp.Abstraction.Agents.Models;
 using MongoDB.Driver;
 using BotSharp.Abstraction.Routing.Models;
+using BotSharp.Abstraction.Repositories.Filters;
 
 namespace BotSharp.Core.Repository;
 
@@ -52,7 +53,11 @@ public class FileRepository : IBotSharpRepository
             {
                 foreach (var d in Directory.GetDirectories(dir))
                 {
-                    var json = File.ReadAllText(Path.Combine(d, "user.json"));
+                    var userFile = Path.Combine(d, "user.json");
+                    if (!Directory.Exists(d) || !File.Exists(userFile))
+                        continue;
+
+                    var json = File.ReadAllText(userFile);
                     _users.Add(JsonSerializer.Deserialize<User>(json, _options));
                 }
             }
@@ -75,7 +80,11 @@ public class FileRepository : IBotSharpRepository
             {
                 foreach (var d in Directory.GetDirectories(dir))
                 {
-                    var json = File.ReadAllText(Path.Combine(d, "agent.json"));
+                    var file = Path.Combine(d, "agent.json");
+                    if (!Directory.Exists(d) || !File.Exists(file))
+                        continue;
+
+                    var json = File.ReadAllText(file);
                     var agent = JsonSerializer.Deserialize<Agent>(json, _options);
                     if (agent != null)
                     {
@@ -108,11 +117,11 @@ public class FileRepository : IBotSharpRepository
                 foreach (var d in Directory.GetDirectories(dir))
                 {
                     var file = Path.Combine(d, "agents.json");
-                    if (Directory.Exists(d) && File.Exists(file))
-                    {
-                        var json = File.ReadAllText(file);
-                        _userAgents.AddRange(JsonSerializer.Deserialize<List<UserAgent>>(json, _options));
-                    }
+                    if (!Directory.Exists(d) || !File.Exists(file))
+                        continue;
+
+                    var json = File.ReadAllText(file);
+                    _userAgents.AddRange(JsonSerializer.Deserialize<List<UserAgent>>(json, _options));
                 }
             }
             return _userAgents.AsQueryable();
@@ -121,12 +130,7 @@ public class FileRepository : IBotSharpRepository
 
     public void Add<TTableInterface>(object entity)
     {
-        if (entity is Conversation conversation)
-        {
-            _conversations.Add(conversation);
-            _changedTableNames.Add(nameof(Conversation));
-        }
-        else if (entity is Agent agent)
+        if (entity is Agent agent)
         {
             _agents.Add(agent);
             _changedTableNames.Add(nameof(Agent));
@@ -152,20 +156,7 @@ public class FileRepository : IBotSharpRepository
         // Persist to disk
         foreach (var table in _changedTableNames)
         {
-            if (table == nameof(Conversation))
-            {
-                foreach (var conversation in _conversations)
-                {
-                    var dir = Path.Combine(_dbSettings.FileRepository, _conversationSettings.DataDir, conversation.Id);
-                    if (!Directory.Exists(dir))
-                    {
-                        Directory.CreateDirectory(dir);
-                    }
-                    var path = Path.Combine(dir, "conversation.json");
-                    File.WriteAllText(path, JsonSerializer.Serialize(conversation, _options));
-                }
-            }
-            else if (table == nameof(Agent))
+            if (table == nameof(Agent))
             {
                 foreach (var agent in _agents)
                 {
@@ -511,33 +502,32 @@ public class FileRepository : IBotSharpRepository
         return null;
     }
 
-    public List<Agent> GetAgents(string? name = null, bool? disabled = null, bool? allowRouting = null,
-        bool? isPublic = null, List<string>? agentIds = null)
+    public List<Agent> GetAgents(AgentFilter filter)
     {
         var query = Agents;
-        if (!string.IsNullOrEmpty(name))
+        if (!string.IsNullOrEmpty(filter.AgentName))
         {
-            query = query.Where(x => x.Name.ToLower() == name.ToLower());
+            query = query.Where(x => x.Name.ToLower() == filter.AgentName.ToLower());
         }
 
-        if (disabled.HasValue)
+        if (filter.Disabled.HasValue)
         {
-            query = query.Where(x => x.Disabled == disabled);
+            query = query.Where(x => x.Disabled == filter.Disabled);
         }
 
-        if (allowRouting.HasValue)
+        if (filter.AllowRouting.HasValue)
         {
-            query = query.Where(x => x.AllowRouting == allowRouting);
+            query = query.Where(x => x.AllowRouting == filter.AllowRouting);
         }
 
-        if (isPublic.HasValue)
+        if (filter.IsPublic.HasValue)
         {
-            query = query.Where(x => x.IsPublic == isPublic);
+            query = query.Where(x => x.IsPublic == filter.IsPublic);
         }
 
-        if (agentIds != null)
+        if (filter.AgentIds != null)
         {
-            query = query.Where(x => agentIds.Contains(x.Id));
+            query = query.Where(x => filter.AgentIds.Contains(x.Id));
         }
 
         return query.ToList();
@@ -550,7 +540,12 @@ public class FileRepository : IBotSharpRepository
                         where ua.UserId == userId || u.ExternalId == userId
                         select ua.AgentId).ToList();
 
-        var agents = GetAgents(isPublic: true, agentIds: agentIds);
+        var filter = new AgentFilter
+        {
+            IsPublic = true,
+            AgentIds = agentIds
+        };
+        var agents = GetAgents(filter);
         return agents;
     }
 
@@ -563,7 +558,7 @@ public class FileRepository : IBotSharpRepository
         foreach (var file in Directory.GetFiles(dir))
         {
             var fileName = file.Split(Path.DirectorySeparatorChar).Last();
-            var splits = fileName.ToLower().Split('.');
+            var splits = ParseFileNameByPath(fileName.ToLower());
             var name = splits[0];
             var extension = splits[1];
             if (name.IsEqualTo(templateName) && extension.IsEqualTo(_agentSettings.TemplateFormat))
@@ -617,22 +612,31 @@ public class FileRepository : IBotSharpRepository
         }
     }
 
-    public string GetConversationDialog(string conversationId)
+    public bool DeleteConversation(string conversationId)
     {
-        var convDir = FindConversationDirectory(conversationId);
-        if (!string.IsNullOrEmpty(convDir))
-        {
-            var dialogDir = Path.Combine(convDir, "dialogs.txt");
-            if (File.Exists(dialogDir))
-            {
-                return File.ReadAllText(dialogDir);
-            }
-        }
+        if (string.IsNullOrEmpty(conversationId)) return false;
 
-        return string.Empty;
+        var convDir = FindConversationDirectory(conversationId);
+        if (string.IsNullOrEmpty(convDir)) return false;
+
+        Directory.Delete(convDir, true);
+        return true;
     }
 
-    public void UpdateConversationDialog(string conversationId, string dialogs)
+    public List<DialogElement> GetConversationDialogs(string conversationId)
+    {
+        var dialogs = new List<DialogElement>();
+        var convDir = FindConversationDirectory(conversationId);
+        if (!string.IsNullOrEmpty(convDir))
+        {
+            var dialogDir = Path.Combine(convDir, "dialogs.txt");
+            dialogs = CollectDialogElements(dialogDir);
+        }
+
+        return dialogs;
+    }
+
+    public void AppendConversationDialogs(string conversationId, List<DialogElement> dialogs)
     {
         var convDir = FindConversationDirectory(conversationId);
         if (!string.IsNullOrEmpty(convDir))
@@ -640,13 +644,29 @@ public class FileRepository : IBotSharpRepository
             var dialogDir = Path.Combine(convDir, "dialogs.txt");
             if (File.Exists(dialogDir))
             {
-                File.WriteAllText(dialogDir, dialogs);
+                var texts = ParseDialogElements(dialogs);
+                File.AppendAllLines(dialogDir, texts);
             }
         }
 
         return;
     }
-
+    public void UpdateConversationTitle(string conversationId, string title)
+    {
+        var convDir = FindConversationDirectory(conversationId);
+        if (!string.IsNullOrEmpty(convDir))
+        {
+            var convFile = Path.Combine(convDir, "conversation.json");
+            var content = File.ReadAllText(convFile);
+            var record = JsonSerializer.Deserialize<Conversation>(content, _options);
+            if (record != null)
+            {
+                record.Title = title;
+                record.UpdatedTime = DateTime.UtcNow;
+                File.WriteAllText(convFile, JsonSerializer.Serialize(record, _options));
+            }
+        }
+    }
     public List<StateKeyValue> GetConversationStates(string conversationId)
     {
         var curStates = new List<StateKeyValue>();
@@ -654,15 +674,7 @@ public class FileRepository : IBotSharpRepository
         if (!string.IsNullOrEmpty(convDir))
         {
             var stateDir = Path.Combine(convDir, "state.dict");
-            if (File.Exists(stateDir))
-            {
-                var dict = File.ReadAllLines(stateDir);
-                foreach (var line in dict)
-                {
-                    var data = line.Split('=');
-                    curStates.Add(new StateKeyValue(data[0], data[1]));
-                }
-            }
+            curStates = CollectConversationStates(stateDir);
         }
 
         return curStates;
@@ -686,35 +698,49 @@ public class FileRepository : IBotSharpRepository
         }
     }
 
-    public Conversation GetConversation(string conversationId)
+    public void UpdateConversationStatus(string conversationId, string status)
     {
         var convDir = FindConversationDirectory(conversationId);
         if (!string.IsNullOrEmpty(convDir))
         {
             var convFile = Path.Combine(convDir, "conversation.json");
-            var content = File.ReadAllText(convFile);
-            var record = JsonSerializer.Deserialize<Conversation>(content, _options);
-
-            var dialogFile = Path.Combine(convDir, "dialogs.txt");
-            if (record != null && File.Exists(dialogFile))
+            if (File.Exists(convFile))
             {
-                record.Dialog = File.ReadAllText(dialogFile);
+                var json = File.ReadAllText(convFile);
+                var conv = JsonSerializer.Deserialize<Conversation>(json, _options);
+                conv.Status = status;
+                conv.UpdatedTime = DateTime.UtcNow;
+                File.WriteAllText(convFile, JsonSerializer.Serialize(conv, _options));
             }
-
-            var stateFile = Path.Combine(convDir, "state.dict");
-            if (record != null && File.Exists(stateFile))
-            {
-                var states = File.ReadLines(stateFile);
-                record.States = new ConversationState(states.Select(x => new StateKeyValue(x.Split('=')[0], x.Split('=')[1])).ToList());
-            }
-
-            return record;
         }
-
-        return null;
     }
 
-    public List<Conversation> GetConversations(string userId)
+    public Conversation GetConversation(string conversationId)
+    {
+        var convDir = FindConversationDirectory(conversationId);
+        if (string.IsNullOrEmpty(convDir)) return null;
+
+        var convFile = Path.Combine(convDir, "conversation.json");
+        var content = File.ReadAllText(convFile);
+        var record = JsonSerializer.Deserialize<Conversation>(content, _options);
+
+        var dialogFile = Path.Combine(convDir, "dialogs.txt");
+        if (record != null)
+        {
+            record.Dialogs = CollectDialogElements(dialogFile);
+        }
+
+        var stateFile = Path.Combine(convDir, "state.dict");
+        if (record != null)
+        {
+            var states = CollectConversationStates(stateFile);
+            record.States = new ConversationState(states);
+        }
+
+        return record;
+    }
+
+    public List<Conversation> GetConversations(ConversationFilter filter)
     {
         var records = new List<Conversation>();
         var dir = Path.Combine(_dbSettings.FileRepository, _conversationSettings.DataDir);
@@ -726,16 +752,70 @@ public class FileRepository : IBotSharpRepository
 
             var json = File.ReadAllText(path);
             var record = JsonSerializer.Deserialize<Conversation>(json, _options);
-            if (record != null && record.UserId == userId)
-            {
-                records.Add(record);
-            }
+            if (record == null) continue;
+
+            var matched = true;
+            if (!string.IsNullOrEmpty(filter.AgentId)) matched = matched && record.AgentId == filter.AgentId;
+            if (!string.IsNullOrEmpty(filter.Status)) matched = matched && record.Status == filter.Status;
+            if (!string.IsNullOrEmpty(filter.Channel)) matched = matched && record.Channel == filter.Channel;
+            if (!string.IsNullOrEmpty(filter.UserId)) matched = matched && record.UserId == filter.UserId;
+
+            if (!matched) continue;
+            records.Add(record);
         }
 
         return records;
     }
 
-    public void AddExectionLogs(string conversationId, List<string> logs)
+    public List<Conversation> GetLastConversations()
+    {
+        var records = new List<Conversation>();
+        var dir = Path.Combine(_dbSettings.FileRepository, _conversationSettings.DataDir);
+
+        foreach (var d in Directory.GetDirectories(dir))
+        {
+            var path = Path.Combine(d, "conversation.json");
+            if (!File.Exists(path)) continue;
+
+            var json = File.ReadAllText(path);
+            var record = JsonSerializer.Deserialize<Conversation>(json, _options);
+            if (record == null) continue;
+
+            records.Add(record);
+        }
+        return records.GroupBy(r => r.UserId)
+                      .Select(g => g.OrderByDescending(x => x.CreatedTime).First())
+                      .ToList();
+    }
+    #endregion
+
+    #region User
+    public User? GetUserByEmail(string email)
+    {
+        return Users.FirstOrDefault(x => x.Email == email);
+    }
+
+    public User? GetUserById(string id = null)
+    {
+        return Users.FirstOrDefault(x => x.ExternalId == id || x.Id == id);
+    }
+
+    public void CreateUser(User user)
+    {
+        var userId = Guid.NewGuid().ToString();
+        user.Id = userId;
+        var dir = Path.Combine(_dbSettings.FileRepository, "users", userId);
+        if (!Directory.Exists(dir))
+        {
+            Directory.CreateDirectory(dir);
+        }
+        var path = Path.Combine(dir, "user.json");
+        File.WriteAllText(path, JsonSerializer.Serialize(user, _options));
+    }
+    #endregion
+
+    #region Execution Log
+    public void AddExecutionLogs(string conversationId, List<string> logs)
     {
         if (string.IsNullOrEmpty(conversationId) || logs.IsNullOrEmpty()) return;
 
@@ -749,7 +829,7 @@ public class FileRepository : IBotSharpRepository
         File.AppendAllLines(file, logs);
     }
 
-    public List<string> GetExectionLogs(string conversationId)
+    public List<string> GetExecutionLogs(string conversationId)
     {
         var logs = new List<string>();
         if (string.IsNullOrEmpty(conversationId)) return logs;
@@ -763,29 +843,25 @@ public class FileRepository : IBotSharpRepository
     }
     #endregion
 
-    #region User
-    public User? GetUserByEmail(string email)
+    #region LLM Completion Log
+    public void SaveLlmCompletionLog(LlmCompletionLog log)
     {
-        return Users.FirstOrDefault(x => x.Email == email);
-    }
+        var convDir = FindConversationDirectory(log.ConversationId);
+        if (!Directory.Exists(convDir)) return;
 
-    public User? GetUserByExternalId(string externalId)
-    {
-        return Users.FirstOrDefault(x => x.ExternalId == externalId);
-    }
-
-    public void CreateUser(User user)
-    {
-        var userId = Guid.NewGuid().ToString();
-        var dir = Path.Combine(_dbSettings.FileRepository, "users", userId);
-        if (!Directory.Exists(dir))
+        var logDir = Path.Combine(convDir, "llm_prompt_log");
+        if (!Directory.Exists(logDir))
         {
-            Directory.CreateDirectory(dir);
+            Directory.CreateDirectory(logDir);
         }
-        var path = Path.Combine(dir, "user.json");
-        File.WriteAllText(path, JsonSerializer.Serialize(user, _options));
+
+        log.Id = Guid.NewGuid().ToString();
+        var index = GetLlmCompletionLogIndex(logDir, log.MessageId);
+        var file = Path.Combine(logDir, $"{log.MessageId}.{index}.log");
+        File.WriteAllText(file, JsonSerializer.Serialize(log, _options));
     }
     #endregion
+
 
     #region Private methods
     private string GetAgentDataDir(string agentId)
@@ -879,22 +955,84 @@ public class FileRepository : IBotSharpRepository
 
     private string? FindConversationDirectory(string conversationId)
     {
-        var dir = Path.Combine(_dbSettings.FileRepository, _conversationSettings.DataDir);
+        var dir = Path.Combine(_dbSettings.FileRepository, _conversationSettings.DataDir, conversationId);
+        if (!Directory.Exists(dir)) return null;
 
-        foreach (var d in Directory.GetDirectories(dir))
+        return dir;
+    }
+
+    private List<DialogElement> CollectDialogElements(string dialogDir)
+    {
+        var dialogs = new List<DialogElement>();
+
+        if (!File.Exists(dialogDir)) return dialogs;
+
+        var rawDialogs = File.ReadAllLines(dialogDir);
+        if (!rawDialogs.IsNullOrEmpty())
         {
-            var path = Path.Combine(d, "conversation.json");
-            if (!File.Exists(path)) continue;
-
-            var json = File.ReadAllText(path);
-            var conv = JsonSerializer.Deserialize<Conversation>(json, _options);
-            if (conv != null && conv.Id == conversationId)
+            for (int i = 0; i < rawDialogs.Count(); i += 2)
             {
-                return d;
+                var meta = rawDialogs[i];
+                var content = rawDialogs[i + 1];
+                var trimmed = content.Substring(4);
+                dialogs.Add(new DialogElement(meta, trimmed));
             }
         }
+        return dialogs;
+    }
 
-        return null;
+    private List<string> ParseDialogElements(List<DialogElement> dialogs)
+    {
+        var dialogTexts = new List<string>();
+        if (dialogs.IsNullOrEmpty()) return dialogTexts;
+
+        foreach (var element in dialogs)
+        {
+            dialogTexts.Add(element.MetaData);
+            var content = $"  - {element.Content}";
+            dialogTexts.Add(content);
+        }
+
+        return dialogTexts;
+    }
+
+    private List<StateKeyValue> CollectConversationStates(string stateDir)
+    {
+        var states = new List<StateKeyValue>();
+        if (!File.Exists(stateDir)) return states;
+
+        var dict = File.ReadAllLines(stateDir);
+        foreach (var line in dict)
+        {
+            var data = line.Split('=');
+            states.Add(new StateKeyValue(data[0], data[1]));
+        }
+        return states;
+    }
+
+    private int GetLlmCompletionLogIndex(string logDir, string id)
+    {
+        var files = Directory.GetFiles(logDir);
+        if (files.IsNullOrEmpty())
+            return 0;
+
+        var logIndexes = files.Where(file =>
+        {
+            var fileName = ParseFileNameByPath(file);
+            return fileName[0].IsEqualTo(id);
+        }).Select(file =>
+        {
+            var fileName = ParseFileNameByPath(file);
+            return int.Parse(fileName[1]);
+        }).ToList();
+
+        return logIndexes.IsNullOrEmpty() ? 0 : logIndexes.Max() + 1;
+    }
+
+    private string[] ParseFileNameByPath(string path, string separator = ".")
+    {
+        var name = path.Split(Path.DirectorySeparatorChar).Last();
+        return name.Split(separator);
     }
     #endregion
 }

@@ -36,7 +36,13 @@ public class RouteToAgentRoutingHandler : RoutingHandlerBase, IRoutingHandler
         var ret = await function.Execute(message);
 
         var agentId = context.GetCurrentAgentId();
-        if (inst.IsExecutionOnce)
+
+        // Update next action agent's name
+        var agentService = _services.GetRequiredService<IAgentService>();
+        var agent = await agentService.LoadAgent(agentId);
+        inst.AgentName = agent.Name;
+
+        if (inst.ExecutingDirectly)
         {
             message.Content = inst.Question;
         }

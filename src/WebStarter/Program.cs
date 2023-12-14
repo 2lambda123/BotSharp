@@ -1,6 +1,9 @@
+using BotSharp.Abstraction.Messaging;
 using BotSharp.Abstraction.Users;
 using BotSharp.Core;
 using BotSharp.Core.Users.Services;
+using BotSharp.Logger;
+using BotSharp.Plugin.ChatHub;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
 using System.Text;
@@ -8,7 +11,12 @@ using System.Text;
 var builder = WebApplication.CreateBuilder(args);
 
 // Add services to the container.
-builder.Services.AddControllers();
+builder.Services.AddControllers()
+    .AddJsonOptions(options =>
+    {
+        options.JsonSerializerOptions.Converters.Add(new RichContentJsonConverter());
+        options.JsonSerializerOptions.Converters.Add(new TemplateMessageJsonConverter());
+    });
 
 // Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
 builder.Services.AddEndpointsApiExplorer();
@@ -39,18 +47,19 @@ builder.Services.AddAuthentication(options =>
 builder.Services.AddScoped<IUserIdentity, UserIdentity>();
 
 // Add BotSharp
-builder.Services.AddBotSharp(builder.Configuration);
+builder.Services.AddBotSharpCore(builder.Configuration);
+builder.Services.AddBotSharpLogger(builder.Configuration);
 
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("MyCorsPolicy",
-        builder =>
-        {
-            builder.AllowAnyOrigin()
+        builder => builder.WithOrigins("http://localhost:5010")
                    .AllowAnyMethod()
-                   .AllowAnyHeader();
-        });
+                   .AllowAnyHeader()
+                   .AllowCredentials());
 });
+
+builder.Services.AddSignalR();
 
 var app = builder.Build();
 
@@ -60,6 +69,9 @@ if (app.Environment.IsDevelopment())
     app.UseSwagger();
     app.UseSwaggerUI();
 }
+
+app.MapHub<SignalRHub>("/chatHub");
+app.UseMiddleware<WebSocketsMiddleware>();
 
 app.UseAuthentication();
 app.UseAuthorization();

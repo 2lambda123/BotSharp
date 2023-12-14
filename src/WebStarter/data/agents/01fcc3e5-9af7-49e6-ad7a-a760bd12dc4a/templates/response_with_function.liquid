@@ -1,0 +1,29 @@
+
+[FUNCTIONS]
+{% for fn in functions %}
+# {{ fn.name }} - {{ fn.description}}
+{% if fn.parameters and fn.parameters != empty -%}
+Parameters: 
+    {% for p in fn.parameters -%}
+    - {{ p.name }}: {{ p.description }}{{ "\r\n    " }}
+    {%- endfor %}
+{%- endif %}
+{% endfor %}
+
+[CONVERSATION]
+{% for msg in dialogs %}
+  {% if msg.role == 'function' -%}
+  {{ msg.role }}: function of {{ msg.function_name }} returns [{{ msg.content}}]  
+  {%- else -%}
+  {{ msg.role }}: {{ msg.content}}
+  {%- endif %}
+{% endfor %}
+
+[SOLVING STEPS]
+1. Read the [INSTRUCTIONS] and [CONVERSATION], Think step by step to figure out the next interaction with user to achieve his goal.
+2. Read the [FUNCTIONS] definition, you can utilize the function to retrieve necessary data.
+3. Read the content of "function: ", it contains result of function execution. 
+   It may also answered user's question, in this case you don't need to ask user this question.
+4. If you need to call a function to decide how to response user, 
+   response in format: {"role": "function", "reason":"why choose this function", "function_name": "", "args": {}}, 
+   otherwise response in format: {"role": "assistant", "reason":"why response to user", "content":"response to user that will drive the conversation to complete user"}. 

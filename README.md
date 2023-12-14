@@ -17,7 +17,7 @@ It's written in C# running on .Net Core that is full cross-platform framework, t
 
 **BotSharp** is in accordance with components principle strictly, decouples every part that is needed in the platform builder. So you can choose different UI/UX, or pick up a different LLM providers. They are all modulized based on unified interfaces. **BotSharp** provides an advanced Agent abstraction layer to efficiently manage complex application scenarios in enterprises, allowing enterprise developers to efficiently integrate AI into business systems.
 
-![](./docs/architecture/assets/llm_diagram.png)
+![](./docs/architecture/assets/botsharp_diagram.png)
 
 ### Some Features
 
@@ -27,8 +27,9 @@ It's written in C# running on .Net Core that is full cross-platform framework, t
 * Support multiple LLM platforms (ChatGPT 3.5 / 4.0, PaLM 2, LLaMA 2, HuggingFace).
 * Allow multiple agents with different responsibilities cooperate to complete complex tasks. 
 * Build, test, evaluate and audit your LLM agent in one place.
-* Support different open source UI [Chatbot UI](src/Plugins/BotSharp.Plugin.ChatbotUI/Chatbot-UI.md), [HuggingChat UI](src/Plugins/BotSharp.Plugin.HuggingFace/HuggingChat-UI.md).
+* Build-in Web Live Chat UI written in SvelteKit.
 * Abstract standard Rich Content data structure. Integrate with popular message channels like Facebook Messenger, Slack and Telegram.
+* Provide RESTful Open API and WebSocket real-time communication.
 
 ### Quick Started
 1. Run backend service
@@ -37,13 +38,43 @@ It's written in C# running on .Net Core that is full cross-platform framework, t
  PS D:\> cd BotSharp
  PS D:\BotSharp\> dotnet run -p .\src\WebStarter
 ```
-2. Run UI project, reference to [Chatbot UI](src/Plugins/BotSharp.Plugin.ChatbotUI/Chatbot-UI.md).
+
+2. Run UI project, reference to [Web Live Chat](src/web-live-chat/README.md).
+```sh
+PS D:\> cd .\src\web-live-chat
+PS D:\> npm install --force
+PS D:\> npm run dev
+```
+
+Access http://localhost:5010/chat/01fcc3e5-9af7-49e6-ad7a-a760bd12dc4a
+
+![Alt text](./docs/static/screenshots/web-live-chat.png)
+
+
+
+### Core Modules
+
+The core module is mainly composed of abstraction and framework function implementation, combined with some common tools.
+
+- Plugin Loader
+- Hooking
+- Authentication
+- Agent Profile
+- Conversation & State
+- Routing & Planning
+- Templating
+- File Repository
+- Caching
+- Rich Content
+- LLM Provider
+
 
 ### Plugins
 
 BotSharp uses component design, the kernel is kept to a minimum, and business functions are implemented by external components. The modular design also allows contributors to better participate. Below are the bulit-in plugins:
 
 #### Data Storages
+- BotSharp.Core.Repository
 - BotSharp.Plugin.MongoStorage
 
 #### LLMs
@@ -56,11 +87,13 @@ BotSharp uses component design, the kernel is kept to a minimum, and business fu
 
 #### Messaging / Channel
 - BotSharp.OpenAPI
+- BotSharp.Plugin.ChatHub
 - BotSharp.Plugin.MetaMessenger
 - BotSharp.Plugin.Twilio
+- BotSharp.Plugin.TelegramBots
 - BotSharp.Plugin.WeChat
   
-#### RAGS
+#### RAGs
 - BotSharp.Plugin.KnowledgeBase
 - BotSharp.Plugin.Qdrant
 

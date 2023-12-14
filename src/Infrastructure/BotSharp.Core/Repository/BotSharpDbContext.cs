@@ -1,5 +1,6 @@
 using BotSharp.Abstraction.Agents.Models;
 using BotSharp.Abstraction.Repositories;
+using BotSharp.Abstraction.Repositories.Filters;
 using BotSharp.Abstraction.Users.Models;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 
@@ -72,8 +73,7 @@ public class BotSharpDbContext : Database, IBotSharpRepository
         throw new NotImplementedException();
     }
 
-    public List<Agent> GetAgents(string? name = null, bool? disabled = null, bool? allowRouting = null,
-        bool? isPublic = null, List<string>? agentIds = null)
+    public List<Agent> GetAgents(AgentFilter filter)
     {
         throw new NotImplementedException();
     }
@@ -121,17 +121,27 @@ public class BotSharpDbContext : Database, IBotSharpRepository
         throw new NotImplementedException();
     }
 
+    public bool DeleteConversation(string conversationId)
+    {
+        throw new NotImplementedException();
+    }
+
     public Conversation GetConversation(string conversationId)
     {
         throw new NotImplementedException();
     }
 
-    public List<Conversation> GetConversations(string userId)
+    public List<Conversation> GetConversations(ConversationFilter filter)
     {
         throw new NotImplementedException();
     }
 
-    public string GetConversationDialog(string conversationId)
+    public List<Conversation> GetLastConversations()
+    {
+        throw new NotImplementedException();
+    }
+
+    public List<DialogElement> GetConversationDialogs(string conversationId)
     {
         throw new NotImplementedException();
     }
@@ -141,22 +151,20 @@ public class BotSharpDbContext : Database, IBotSharpRepository
         throw new NotImplementedException();
     }
 
-    public void UpdateConversationDialog(string conversationId, string dialogs)
+    public void AppendConversationDialogs(string conversationId, List<DialogElement> dialogs)
     {
         throw new NotImplementedException();
     }
-
+    public void UpdateConversationTitle(string conversationId, string title)
+    {
+        throw new NotImplementedException();
+    }
     public void UpdateConversationStates(string conversationId, List<StateKeyValue> states)
     {
         throw new NotImplementedException();
     }
 
-    public void AddExectionLogs(string conversationId, List<string> logs)
-    {
-        throw new NotImplementedException();
-    }
-
-    public List<string> GetExectionLogs(string conversationId)
+    public void UpdateConversationStatus(string conversationId, string status)
     {
         throw new NotImplementedException();
     }
@@ -169,12 +177,32 @@ public class BotSharpDbContext : Database, IBotSharpRepository
         throw new NotImplementedException();
     }
 
-    public User? GetUserByExternalId(string externalId)
+    public User? GetUserById(string id)
     {
         throw new NotImplementedException();
     }
 
     public void CreateUser(User user)
+    {
+        throw new NotImplementedException();
+    }
+    #endregion
+
+
+    #region Execution Log
+    public void AddExecutionLogs(string conversationId, List<string> logs)
+    {
+        throw new NotImplementedException();
+    }
+
+    public List<string> GetExecutionLogs(string conversationId)
+    {
+        throw new NotImplementedException();
+    }
+    #endregion
+
+    #region LLM Completion Log
+    public void SaveLlmCompletionLog(LlmCompletionLog log)
     {
         throw new NotImplementedException();
     }

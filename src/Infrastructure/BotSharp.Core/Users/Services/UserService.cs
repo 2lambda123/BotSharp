@@ -94,10 +94,19 @@ public class UserService : IUserService
         return tokenHandler.WriteToken(token);
     }
 
+    [MemoryCache(10 * 60)]
     public async Task<User> GetMyProfile()
     {
         var db = _services.GetRequiredService<IBotSharpRepository>();
-        var user = db.GetUserByExternalId(_user.Id);
+        var user = db.GetUserById(_user.Id);
+        return user;
+    }
+
+    [MemoryCache(10 * 60)]
+    public async Task<User> GetUser(string id)
+    {
+        var db = _services.GetRequiredService<IBotSharpRepository>();
+        var user = db.GetUserById(id);
         return user;
     }
 }

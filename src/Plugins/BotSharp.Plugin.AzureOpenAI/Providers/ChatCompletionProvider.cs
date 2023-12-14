@@ -1,14 +1,12 @@
-using Azure;
 using Azure.AI.OpenAI;
 using BotSharp.Abstraction.Agents;
 using BotSharp.Abstraction.Agents.Enums;
 using BotSharp.Abstraction.Agents.Models;
 using BotSharp.Abstraction.Conversations;
 using BotSharp.Abstraction.Conversations.Models;
-using BotSharp.Abstraction.Conversations.Settings;
+using BotSharp.Abstraction.Loggers;
 using BotSharp.Abstraction.MLTasks;
 using BotSharp.Plugin.AzureOpenAI.Settings;
-using Microsoft.Extensions.Azure;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using System;
@@ -39,11 +37,13 @@ public class ChatCompletionProvider : IChatCompletion
 
     public RoleDialogModel GetChatCompletions(Agent agent, List<RoleDialogModel> conversations)
     {
-        var hooks = _services.GetServices<IContentGeneratingHook>().ToList();
+        var contentHooks = _services.GetServices<IContentGeneratingHook>().ToList();
 
         // Before chat completion hook
-        Task.WaitAll(hooks.Select(hook => 
-            hook.BeforeGenerating(agent, conversations)).ToArray());
+        foreach (var hook in contentHooks)
+        {
+            hook.BeforeGenerating(agent, conversations).Wait();
+        }
 
         var client = ProviderHelper.GetClient(_model, _settings);
         var (prompt, chatCompletionsOptions) = PrepareOptions(agent, conversations);
@@ -75,23 +75,17 @@ public class ChatCompletionProvider : IChatCompletion
             }
         }
 
-        var setting = _services.GetRequiredService<ConversationSetting>();
-        if (setting.ShowVerboseLog)
-        {
-            _logger.LogInformation(responseMessage.Role == AgentRole.Function ? 
-                $"[{agent.Name}]: {responseMessage.FunctionName}({responseMessage.FunctionArgs})" :
-                $"[{agent.Name}]: {responseMessage.Content}");
-        }
-
         // After chat completion hook
-        Task.WaitAll(hooks.Select(hook =>
+        foreach(var hook in contentHooks)
+        {
             hook.AfterGenerated(responseMessage, new TokenStatsModel
             {
                 Prompt = prompt,
                 Model = _model,
                 PromptCount = response.Value.Usage.PromptTokens,
                 CompletionCount = response.Value.Usage.CompletionTokens
-            })).ToArray());
+            }).Wait();
+        }
 
         return responseMessage;
     }
@@ -104,8 +98,10 @@ public class ChatCompletionProvider : IChatCompletion
         var hooks = _services.GetServices<IContentGeneratingHook>().ToList();
 
         // Before chat completion hook
-        Task.WaitAll(hooks.Select(hook =>
-            hook.BeforeGenerating(agent, conversations)).ToArray());
+        foreach (var hook in hooks)
+        {
+            await hook.BeforeGenerating(agent, conversations);
+        }
 
         var client = ProviderHelper.GetClient(_model, _settings);
         var (prompt, chatCompletionsOptions) = PrepareOptions(agent, conversations);
@@ -121,14 +117,16 @@ public class ChatCompletionProvider : IChatCompletion
         };
 
         // After chat completion hook
-        Task.WaitAll(hooks.Select(hook =>
-            hook.AfterGenerated(msg, new TokenStatsModel
+        foreach (var hook in hooks)
+        {
+            await hook.AfterGenerated(msg, new TokenStatsModel
             {
                 Prompt = prompt,
                 Model = _model,
                 PromptCount = response.Value.Usage.PromptTokens,
                 CompletionCount = response.Value.Usage.CompletionTokens
-            })).ToArray());
+            });
+        }
 
         if (choice.FinishReason == CompletionsFinishReason.FunctionCall)
         {
@@ -250,11 +248,6 @@ public class ChatCompletionProvider : IChatCompletion
         // chatCompletionsOptions.PresencePenalty = 0;
 
         var prompt = GetPrompt(chatCompletionsOptions);
-        var convSetting = _services.GetRequiredService<ConversationSetting>();
-        if (convSetting.ShowVerboseLog)
-        {
-            _logger.LogInformation(prompt);
-        }
 
         return (prompt, chatCompletionsOptions);
     }

@@ -1,4 +1,5 @@
 using BotSharp.Abstraction.Agents.Models;
+using BotSharp.Abstraction.Conversations.Models;
 using BotSharp.Abstraction.Repositories;
 using System.IO;
 
@@ -13,7 +14,7 @@ public partial class AgentService
 
         var dbSettings = _services.GetRequiredService<BotSharpDatabaseSettings>();
         var agentDir = Path.Combine(dbSettings.FileRepository, _agentSettings.DataDir);
-        var user = _db.GetUserByExternalId(_user.Id);
+        var user = _db.GetUserById(_user.Id);
         var agents = new List<Agent>();
         var userAgents = new List<UserAgent>();
 
@@ -39,6 +40,7 @@ public partial class AgentService
                 Id = Guid.NewGuid().ToString(),
                 UserId = user.Id,
                 AgentId = agent.Id,
+                Editable = false,
                 CreatedTime = DateTime.UtcNow,
                 UpdatedTime = DateTime.UtcNow
             };

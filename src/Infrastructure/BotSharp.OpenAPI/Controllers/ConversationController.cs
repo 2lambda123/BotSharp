@@ -1,10 +1,3 @@
-using BotSharp.Abstraction.ApiAdapters;
-using BotSharp.Abstraction.Conversations.Models;
-using BotSharp.Abstraction.Models;
-using BotSharp.OpenAPI.ViewModels.Conversations;
-using Microsoft.AspNetCore.Http;
-using System.Net.Http.Headers;
-
 namespace BotSharp.OpenAPI.Controllers;
 
 [Authorize]
@@ -27,35 +20,90 @@ public class ConversationController : ControllerBase, IApiAdapter
         var service = _services.GetRequiredService<IConversationService>();
         var conv = new Conversation
         {
-            AgentId = agentId
+            AgentId = agentId,
+            Channel = ConversationChannel.OpenAPI,
+            UserId = _user.Id
         };
         conv = await service.NewConversation(conv);
-        config.States.ForEach(x => conv.States[x.Split('=')[0]] = x.Split('=')[1]);
+        service.SetConversationId(conv.Id, config.States);
 
         return ConversationViewModel.FromSession(conv);
     }
 
-    [HttpDelete("/conversation/{agentId}/{conversationId}")]
-    public async Task DeleteConversation([FromRoute] string agentId, [FromRoute] string conversationId)
+    [HttpGet("/conversations")]
+    public async Task<PagedItems<ConversationViewModel>> GetConversations([FromQuery] ConversationFilter filter)
     {
         var service = _services.GetRequiredService<IConversationService>();
+        var conversations = await service.GetConversations(filter);
+
+        var userService = _services.GetRequiredService<IUserService>();
+        var list = conversations.Items
+            .Select(x => ConversationViewModel.FromSession(x))
+            .ToList();
+
+        foreach (var item in list)
+        {
+            var user = await userService.GetUser(item.User.Id);
+            item.User = UserViewModel.FromUser(user);
+        }
+
+        return new PagedItems<ConversationViewModel>
+        {
+            Count = conversations.Count,
+            Items = list
+        };
+    }
+
+    [HttpGet("/conversation/{conversationId}/dialogs")]
+    public async Task<IEnumerable<ChatResponseModel>> GetDialogs([FromRoute] string conversationId)
+    {
+        var conv = _services.GetRequiredService<IConversationService>();
+        conv.SetConversationId(conversationId, new List<string>());
+        var history = conv.GetDialogHistory();
+
+        var userService = _services.GetRequiredService<IUserService>();
+
+        var dialogs = new List<ChatResponseModel>();
+        foreach (var message in history)
+        {
+            var user = await userService.GetUser(message.SenderId);
+
+            dialogs.Add(new ChatResponseModel
+            {
+                ConversationId = conversationId,
+                MessageId = message.MessageId,
+                CreatedAt = message.CreatedAt,
+                Text = message.Content,
+                Sender = UserViewModel.FromUser(user)
+            });
+        }
+
+        return dialogs;
+    }
+
+    [HttpDelete("/conversation/{conversationId}")]
+    public async Task<bool> DeleteConversation([FromRoute] string conversationId)
+    {
+        var conversationService = _services.GetRequiredService<IConversationService>();
+        var response = await conversationService.DeleteConversation(conversationId);
+        return response;
     }
 
     [HttpPost("/conversation/{agentId}/{conversationId}")]
-    public async Task<MessageResponseModel> SendMessage([FromRoute] string agentId,
+    public async Task<ChatResponseModel> SendMessage([FromRoute] string agentId,
         [FromRoute] string conversationId,
         [FromBody] NewMessageModel input)
     {
         var conv = _services.GetRequiredService<IConversationService>();
         conv.SetConversationId(conversationId, input.States);
         conv.States.SetState("channel", input.Channel)
-            .SetState("provider", input.Provider)
-            .SetState("model", input.Model)
-            .SetState("temperature", input.Temperature)
-            .SetState("sampling_factor", input.SamplingFactor);
+                   .SetState("provider", input.Provider)
+                   .SetState("model", input.Model)
+                   .SetState("temperature", input.Temperature)
+                   .SetState("sampling_factor", input.SamplingFactor);
 
-        var response = new MessageResponseModel();
-        var inputMsg = new RoleDialogModel("user", input.Text);
+        var response = new ChatResponseModel();
+        var inputMsg = new RoleDialogModel(AgentRole.User, input.Text);
         await conv.SendMessage(agentId, inputMsg,
             async msg =>
             {
@@ -77,13 +125,13 @@ public class ConversationController : ControllerBase, IApiAdapter
         var state = _services.GetRequiredService<IConversationStateService>();
         response.States = state.GetStates();
         response.MessageId = inputMsg.MessageId;
+        response.ConversationId = conversationId;
 
         return response;
     }
 
-    [HttpPost("/conversation/{agentId}/{conversationId}/attachments")]
-    public IActionResult UploadAttachments([FromRoute] string agentId,
-        [FromRoute] string conversationId, 
+    [HttpPost("/conversation/{conversationId}/attachments")]
+    public IActionResult UploadAttachments([FromRoute] string conversationId, 
         IFormFile[] files)
     {
         if (files != null && files.Length > 0)

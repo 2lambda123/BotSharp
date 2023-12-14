@@ -12,7 +12,8 @@ public class FunctionCallFromLlm : RoutingArgs
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public JsonDocument? Arguments { get; set; }
 
-    public bool IsExecutionOnce { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.Always)]
+    public bool ExecutingDirectly { get; set; }
 
     public override string ToString()
     {
